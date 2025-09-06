@@ -1,0 +1,525 @@
+---
+title: "Workers Observatory - Edinbburgh Riders Survey Analysis"
+author: "Data analysis and visualisation: Workers Observatory"
+date: "12-12-2024"
+output: 
+  bookdown::pdf_document2:
+    toc: true
+    fig_caption: false
+    latex_engine: xelatex
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,
+                      warning = FALSE, 
+                      message = FALSE)
+```
+
+# Set up
+```{r}
+# set up your working directory
+setwd("/Users/mlieutau/Documents/GitHub/Workers-Observatory-Survey-2024")
+```
+
+
+## packages
+```{r packages}
+library(tidyverse)
+library(questionr)
+library(haven)
+library(sjlabelled)
+library(questionr)
+library(quanteda)
+library(ggtext)
+library(kableExtra)
+library(webshot2)
+library(webshot)
+library(magick)
+```
+
+## graphics
+```{r graphics}
+# graphics packages
+library(wesanderson)
+library(showtext)
+library(hrbrthemes)
+#hrbrthemes::import_roboto_condensed() run if Arial Narrow not already downloaded
+
+personal_theme_simple <- 
+  theme_ipsum(base_size=12) +
+  theme(#text = element_text(family = "Arial Narrow"),
+        #panel.border = element_rect(colour = "grey", fill=NA),Œ
+        panel.spacing.x = unit(0.5, "lines"),
+        axis.text.x = element_text(face = "bold",
+                                   size = 15#,
+                                   #angle=45, 
+                                   #just=1, hjust= 1),
+        ),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        plot.title = element_text(face = "italic",
+                                  size=13),
+        #title = element_blank(),
+        legend.position = "top")
+
+personal_theme_lopsided <- 
+  theme_ipsum(base_size=12) +
+  theme(#text = element_text(family = "Arial Narrow"),
+        #panel.border = element_rect(colour = "grey", fill=NA),Œ
+        panel.spacing.x = unit(0.5, "lines"),
+        axis.text.x = element_text(face="bold",
+                                   size=15,
+                                   angle=45, 
+                                   vjust=1, hjust=1),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        plot.title = element_text(face = "italic"),
+        #title = element_blank(),
+        legend.position = "top")
+
+
+dodge <- position_dodge(width=0.9)
+```
+
+
+# Data
+## data import
+```{r rawdata, eval=FALSE}
+wo_survey_rawdata <- read.csv2("Data/Workers Observatory_July 30, 2025_12.44.csv", sep=",")
+```
+
+# Contact list 
+It is useful to have a list of names and contact for organising purposes. But this should not be included in the data that you use for statistical analysis. We include the code that we have used to set up the contact list. That contact list was shared with the riders group organising in Edinburgh, who designed the survey. We then removed the names and contact details from the survey data, to be compliant with data protection regulations.
+```{r name_unfinished, eval=FALSE}
+wo_survey_rawdata %>%
+  filter(name != "") %>%
+  copy_labels(wo) %>%
+  select(name, StartDate, Finished) %>%
+  filter(Finished == "False") %>%
+  select(name) %>%
+  as.list()
+
+# Time scale 
+wo_survey_rawdata %>%
+  filter(name != "") %>%
+  copy_labels(wo) %>%
+  select(name, StartDate, Finished) %>%
+  filter(Finished == "True") %>%
+  select(StartDate) %>%
+  as.list()
+```
+
+```{r contacts, eval=FALSE}
+# make sure webshot is installed
+# webshot::install_phantomjs()
+
+# list emails/tel for contact
+table_contacts <- wo_survey_rawdata %>%
+  copy_labels(wo_survey_rawdata) %>%
+  select(name, email, tel) %>%
+  slice(3:n()) %>% # remove top 2 rows with variable labels 
+  as.tibble()
+
+table_contacts %>% # save as image
+  kable() %>%
+  kable_styling(latex_options = "striped") %>%
+  save_kable("table_contacts.html")
+
+table_contacts %>% # save as excel
+  write_csv("table_contacts.xlsx")
+
+webshot("table_contacts.html", file="table_contact.png")
+```
+
+```{r, eval=FALSE}
+knitr::include_graphics("table_contact.png")
+```
+
+```{r anonymisation, eval=FALSE}
+freq(wo_survey_rawdata$Finished) # number of finished answers
+
+# duplicated IP
+freq(duplicated(wo_survey_rawdata$IPAddress)) 
+# There may be duplicated IP because someone is using their phone to record different people's answers
+
+# anonymisation
+wo_survey <- wo_survey_rawdata %>%
+  select(age:Pain, consent., Finished)
+names(wo_survey)
+
+write_csv2(wo_survey, "Data/Workers Observatory_July 30, 2025_12.44_anonymised.csv")
+```
+
+```{r import anonymised data}
+wo_survey <- read.csv2("Data/Workers Observatory_July 30, 2025_12.44_anonymised.csv", sep=";")
+```
+
+```{r tidy1}
+wo_survey <- wo_survey[-2,] # remove second row (html labels)
+wo_survey <- set_label(wo_survey, label = as.character(wo_survey[1,])) # assign variable labels
+wo <- wo_survey[-1,] %>%
+  copy_labels(wo_survey) # remove separate row with variable labels
+rownames(wo) <- NULL # removing row numbers
+rm(wo_survey)
+```
+
+
+
+
+```{r remove_incomplete}
+# We remove cases where people didn't reach or didn't fill out the 'consent' question
+s <- wo %>%
+  copy_labels(wo) %>%
+  filter(consent. == "Yes")
+```
+
+# Offending restaurants
+```{r restaurants}
+s <- s %>%
+  mutate(across(1:length(s),tolower))
+
+#freq(str_detect(s$restaurant_bad, "peri|pepe")) # 27 riders (40% of those who answered the survey) mentioned Pepe's Peri Peri
+#freq(str_detect(s$restaurant_bad, "ting|timg|thing thigh|think thai")) # 10 riders (> 15% of those who answered the survey) mentioned Ting Thai
+```
+Key restaurants identified as routinely treating riders badly:
+
+- \textbf{Pepe's Peri Peri} (home street)
+- Ting Thai
+- McDonalds
+- KFC
+- Pizza Express
+- Greek Pizza
+
+27 riders (40% of those who answered the survey) mentioned Pepe's Peri Peri.
+10 riders (> 15% of those who answered the survey) mentioned Ting Thai.
+
+# work hours
+
+```{r workhours}
+w <- s %>%
+  mutate(workhours = case_when(
+    workhours == "6 hours a day" ~ "30",
+    workhours == "40-45" ~ "42.5",
+    workhours == "415" ~ "41.5",
+    workhours == "40-42" ~ "41",
+    workhours == "25-30" ~ "27.5",
+    .default = as.character(workhours))) 
+
+w <- w %>%
+  mutate(workhours = str_extract(workhours, "[\\d.]+")) %>%
+  mutate(workhours = as.numeric(workhours))
+
+w <- w %>%
+  mutate(workweek_pay = case_when(
+    workweek_pay == "40 to 50" ~ "225",
+    workweek_pay == "360-380" ~ "370",
+    .default = as.character(workweek_pay))) %>%
+  mutate(workweek_pay = str_extract(workweek_pay, "[\\d.]+")) %>%
+  mutate(workweek_pay = as.numeric(workweek_pay))
+
+w <- w %>%
+  mutate(hourly_wage = workweek_pay / workhours)
+```
+
+Summary statistics of working hours per week:
+```{r workhours1}
+summary(w$workhours)
+```
+
+Summary statistics for calculated hourly wage:
+```{r hourlywage}
+summary(w$hourly_wage)
+```
+
+Summary statistics for calculated pay per week:
+```{r workweekpay}
+summary(w$workweek_pay)
+```
+I reckon people underestimate their hours.
+Most people work at least 5 days a week but report 40 hours.
+
+
+
+# Plots
+
+
+## platform used [Marion]
+```{r}
+w1 <- w %>%
+  mutate(deliveroo = ifelse(str_detect(apps, "deliveroo") == TRUE, "yes", "no"),
+         ubereats = ifelse(str_detect(apps, "uber eats") == TRUE, "yes", "no"),
+         justeat = ifelse(str_detect(apps, "just eat") == TRUE, "yes", "no"),
+         hungrypanda = ifelse(str_detect(apps, "hungry panda") == TRUE, "yes", "no"),
+         stuart = ifelse(str_detect(apps, "stuart") == TRUE, "yes", "no"))
+
+deliveroo <- w1 %>%
+  select(deliveroo) %>%
+  group_by(deliveroo) %>%
+  summarise(n=n()) %>%
+  mutate(n_pct = round(n/sum(n), digits=2)) %>%
+  filter(deliveroo == "yes") %>%
+  mutate(app = 'deliveroo') %>%
+  select(n_pct, app)
+
+ubereats <- w1 %>%
+  select(ubereats) %>%
+  group_by(ubereats) %>%
+  summarise(n=n()) %>%
+  mutate(n_pct = round(n/sum(n), digits=2)) %>%
+  filter(ubereats == "yes") %>%
+  mutate(app = 'uber eats') %>%
+  select(n_pct, app)
+
+justeat <- w1 %>%
+  select(justeat) %>%
+  group_by(justeat) %>%
+  summarise(n=n()) %>%
+  mutate(n_pct = round(n/sum(n), digits=2)) %>%
+  filter(justeat == "yes") %>%
+  mutate(app = 'just eat') %>%
+  select(n_pct, app)
+
+hungrypanda <- w1 %>%
+  select(hungrypanda) %>%
+  group_by(hungrypanda) %>%
+  summarise(n=n()) %>%
+  mutate(n_pct = round(n/sum(n), digits=2)) %>%
+  filter(hungrypanda == "yes") %>%
+  mutate(app = 'hungry panda') %>%
+  select(n_pct, app)
+
+stuart <- w1 %>%
+  select(stuart) %>%
+  group_by(stuart) %>%
+  summarise(n=n()) %>%
+  mutate(n_pct = round(n/sum(n), digits=2)) %>%
+  filter(stuart == "yes") %>%
+  mutate(app = 'stuart') %>%
+  select(n_pct, app)
+
+app <- rbind (deliveroo, ubereats, justeat, hungrypanda, stuart)
+
+app <- app %>%
+  mutate(app = factor(app, levels = c("deliveroo",
+                                      "uber eats",
+                                      "just eat",
+                                      "hungry panda",
+                                      "stuart")))
+```
+
+```{r plotapp, fig.showtext=TRUE, fig.dim= c(8,8), fig.align="center", out.width="60%"}
+p <- ggplot(data = app, 
+            mapping = aes(x = app, fill = app, y = n_pct, label = scales::percent(n_pct)))
+
+plot_app <-  p + geom_col(position = "dodge", width = 0.6) +
+    scale_fill_manual(values = c("aquamarine", "black", "coral", "gold", "dodgerblue")) +
+    scale_color_manual(values = c("aquamarine", "black", "coral", "gold", "dodgerblue")) +
+    scale_y_continuous(labels = scales::percent_format(accuracy = 5L), limits = c(0, 1)) +
+    labs(title = "Which apps do you use for food delivery?",
+         caption = "Source: Workers' Observatory Edinburgh Riders Survey, November-December 2024") +
+    guides(fill=FALSE) +
+  geom_text(aes(color = app), position = position_dodge(width = .45),    # move to center of bars
+              vjust = -0.5,    # nudge above top of bar
+              size = 6, fontface = "bold", family = "Arial Narrow",
+            scale_color_manual = c("aquamarine", "black", "coral", "gold", "dodgerblue"),
+            show.legend = FALSE) + 
+    personal_theme_lopsided
+  
+
+plot_app
+ggsave("wo_app.png", plot_app, height=6.5, width=6.2)
+```
+
+
+## workhours + workdays [Marion]
+```{r}
+
+```
+
+```{r workdays}
+w <- w %>%
+  mutate(lastweek_days_dv = as.character(lastweek_days),
+         nb_days = (str_count(lastweek_days, ","))+1)
+```
+
+Breakdown: number of days worked per week
+```{r workdays1}
+freq(w$nb_days)
+```
+
+## tips [Boyan]
+
+```{r}
+tips <- w %>%
+  select(tips) %>%
+  filter(tips != "") %>%
+  mutate(tips = case_match(tips, 
+    "that happens sometimes" ~ "sometimes",
+    "that doesn't happen" ~ "no",
+    "that happens all the time" ~ "all the time",
+    .default = as.character(tips))) %>%
+  group_by(tips) %>%
+  summarise(n=n()) %>%
+  mutate(n_pct = round(n/sum(n), digits=2)) %>%
+  mutate(tips = factor(tips, levels = c("no",
+                                        "sometimes",
+                                        "all the time")))
+```
+
+
+```{r, fig.showtext=TRUE, fig.dim= c(8,8), fig.align="center", out.width="60%"}
+
+plot_tips_colours = c("darkgrey", "red3", "red4")
+plot_tips = ggplot(data = tips, 
+            mapping = aes(x = tips, fill = tips, y = n_pct, label = scales::percent(n_pct))) +
+    geom_col(position = "dodge", width = 0.6, alpha=0.9) +
+    scale_fill_manual(values = plot_tips_colours) +
+    scale_color_manual(values = plot_tips_colours) +
+    scale_y_continuous(labels = scales::percent_format(accuracy = 5L), limits = c(0, 1)) +
+    labs(title = "Have you ever not received\na tip you were given?",
+         caption = "Source: Workers' Observatory Edinburgh Riders Survey, November-December 2024") +
+    guides(fill=FALSE) +
+    geom_text(aes(color = tips), position = position_dodge(width = .45),    # move to center of bars
+              vjust = -0.5,    # nudge above top of bar
+              size = 6, fontface = "bold", family = "Arial Narrow",
+              scale_color_manual = plot_tips_colours,
+              show.legend = FALSE) + 
+    geom_richtext(aes(x = "sometimes", y = 0.9, family = "Arial Narrow",
+                    label = "<span style='color:darkred'>**70%**</span> of Edinburgh riders <br> believe <span style='color:darkred'>**they do not receive tips**</span><br>given to them via the app."),
+                size = 6.5, fill = NA, label.color = NA, color = "black") +
+    personal_theme_simple
+
+
+plot_tips
+ggsave("wo_tips.png", plot_tips, height=6.5, width=6.2)
+
+```
+
+
+## main job [Boyan]
+
+```{r}
+jobs <- w %>%
+  select(jobs) %>%
+  filter(jobs != "") %>%
+  mutate(jobs = case_match(jobs, 
+    "you have another main job and you do this on the side" ~ "side job",
+    "your main job but not the only one" ~ "main job",
+    "your only job" ~ "only job",
+    .default = as.character(jobs))) %>%
+  group_by(jobs) %>%
+  summarise(n=n()) %>%
+  mutate(n_pct = round(n/sum(n), digits=2)) %>%
+  mutate(jobs = factor(jobs, levels = c("side job",
+                                        "main job",
+                                        "only job")))
+```
+
+```{r, fig.showtext=TRUE, fig.dim= c(6,6), fig.align="center", out.width="60%"}
+
+# TODO Not sure what the survey question was, made it up for the plot but please change it!! - Boyan
+
+plot_jobs_colours = c("darkgrey", "dodgerblue3", "dodgerblue4")
+
+plot_jobs = ggplot(data = jobs, 
+            mapping = aes(x = jobs, fill = jobs, y = n_pct, label = scales::percent(n_pct))) +
+    geom_col(position = "dodge", width = 0.6, alpha=0.9) +
+    scale_fill_manual(values = plot_jobs_colours) +
+    scale_color_manual(values = plot_jobs_colours) +
+    scale_y_continuous(labels = scales::percent_format(accuracy = 5L), limits = c(0, 1)) +
+    labs(title = "Is working for food delivery\nyour only job, your main job or something you do on the side?",
+         caption = "Source: Workers' Observatory Edinburgh Riders Survey, November-December 2024") +
+    guides(fill=FALSE) +
+    geom_text(aes(color = jobs), position = position_dodge(width = .45),    # move to center of bars
+              vjust = -0.5,    # nudge above top of bar
+              size = 4, fontface = "bold", family = "Arial Narrow",
+              scale_color_manual = plot_jobs_colours,
+              show.legend = FALSE) + 
+    geom_richtext(aes(x = "main job", y = 0.9, family = "Arial Narrow",
+                    label = "<span style='color:dodgerblue4'>**4 out of 5**</span> Edinburgh riders <br> work in food delivery<br><span style='color:dodgerblue4'>**as their main or only job.**</span>"),
+                size = 4, fill = NA, label.color = NA, color = "black") +
+    personal_theme_simple
+
+plot_jobs
+
+ggsave("wo_jobs.png", plot_jobs, height=6.5, width=6.2)
+```
+
+
+## account deactivation [Marion]
+```{r}
+deact <- w %>%
+  select(account_blocked) %>%
+  group_by(account_blocked) %>%
+  summarise(n=n()) %>%
+  mutate(n_pct = round(n/sum(n), digits=2)) 
+```
+**30% of riders have had their account deactivated** by the app(s) at some point.
+
+## accidents [Marion]
+```{r accident}
+freq(w$accident)
+```
+1 in 3 riders had an accident while doing food delivery work, \textit{in the last six months}.
+
+## theft [Marion]
+```{r theft, include=FALSE}
+freq(w$theft_attack.)
+freq(w$theft_attack. != "other") # 80% have had something stolen from them (bike, equipment or food) while doing food delivery
+freq(str_detect(w$theft_attack., "your bike/vehicle was stolen")) # 40% got their bike/vehicle stolen while doing food delivery
+```
+- **80% have had something stolen from them** (bike, equipment or food) while doing food delivery.
+- **40% got their bike/vehicle stolen** while doing food delivery
+
+## pain [Teamwork]
+```{r pain1}
+pain <- w %>%
+  select(Pain) %>%
+  filter(Pain != "") %>%
+  mutate(Pain = case_match(Pain, 
+    "you don't experience pain from this work" ~ "no\npain",
+    "back pain or neck pain" ~ "mainly\nback or neck\npain",
+    "knee pain" ~ "mainly\nknee\npain",
+    "other pain" ~ "mainly\nother\npain",
+    .default = as.character(Pain))) %>%
+  group_by(Pain) %>%
+  summarise(n=n()) %>%
+  mutate(n_pct = round(n/sum(n), digits=2)) %>%
+  mutate(Pain = factor(Pain, levels = c("mainly\nback or neck\npain",
+                                        "mainly\nknee\npain",
+                                        "mainly\nother\npain",
+                                        "no\npain")))
+```
+
+
+```{r plotpain, fig.showtext=TRUE, fig.dim= c(8,8), fig.align="center", out.width="60%"}
+p <- ggplot(data = pain, 
+            mapping = aes(x = Pain, fill = Pain, y = n_pct, label = scales::percent(n_pct)))
+
+plot_pain <-  p + geom_col(position = "dodge", width = 0.6, alpha=0.9, color="black") +
+    scale_fill_manual(values = c("red","red3", "red4", "darkgrey")) +
+    scale_color_manual(values = c("red","red3", "red4", "darkgrey")) +
+    scale_y_continuous(labels = scales::percent_format(accuracy = 5L), limits = c(0, 1)) +
+    labs(title = "Do you often experience pain\nfrom doing food delivery work?",
+         caption = "Source: Workers' Observatory Edinburgh Riders Survey, November-December 2024") +
+    guides(fill=FALSE) +
+  geom_text(aes(color = Pain), position = position_dodge(width = .45),    # move to center of bars
+              vjust = -0.5,    # nudge above top of bar
+              size = 6, fontface = "bold", family = "Arial Narrow",
+            scale_color_manual = c("red","red3", "red4", "darkgrey"),
+            show.legend = FALSE) + 
+  geom_richtext(aes(x = "mainly\nother\npain", y = 0.8, family = "Arial Narrow",
+                    label = "<span style='color:red3'>**85%** of Edinburgh riders <br> experience **chronic physical pain**</span><br>due to their work"),
+                size = 6, fill = NA, label.color = NA, color = "black") +
+    personal_theme_simple
+  
+
+plot_pain
+ggsave("wo_pain.png", plot_pain, height=5.5, width=5.2)
+```
+
+
+
+
+
+
